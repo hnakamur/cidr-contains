@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime/debug"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 )
@@ -26,21 +27,23 @@ func main() {
 		Usage:   "check whether a CIDR contains an IP address",
 		Flags: []cli.Flag{
 			&cli.GenericFlag{
-				Name:    "cidr",
-				Aliases: []string{"c"},
-				Value:   &NetPrefix{},
-				Usage:   "CIDR (ex. 192.0.2.0/24, 2001:db8::/32)",
+				Name:     "cidr",
+				Aliases:  []string{"c"},
+				Value:    &NetPrefixValue{},
+				Required: true,
+				Usage:    "CIDR (ex. 192.0.2.0/24, 2001:db8::/32)",
 			},
 			&cli.GenericFlag{
-				Name:    "address",
-				Aliases: []string{"a"},
-				Value:   &NetAddr{},
-				Usage:   "IP address (ex. 192.0.2.1, 2001:db8::1)",
+				Name:     "address",
+				Aliases:  []string{"a"},
+				Value:    &NetAddrParser{},
+				Required: true,
+				Usage:    "IP address (ex. 192.0.2.1, 2001:db8::1)",
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			cidr := netip.Prefix(*cCtx.Generic("cidr").(*NetPrefix))
-			addr := netip.Addr(*cCtx.Generic("address").(*NetAddr))
+			cidr := cCtx.Generic("cidr").(*NetPrefixValue).prefix
+			addr := cCtx.Generic("address").(*NetAddrParser).addr
 			return containsCommand(cidr, addr)
 		},
 	}
@@ -51,6 +54,10 @@ func main() {
 
 	if err := app.Run(os.Args); err != nil {
 		cli.HandleExitCoder(err)
+		fmt.Fprintf(app.ErrWriter, "\nError: %s\n", err)
+		if strings.HasPrefix(err.Error(), "Required flag") {
+			os.Exit(exitCodeUsageError)
+		}
 	}
 }
 
@@ -61,34 +68,66 @@ func containsCommand(cidr netip.Prefix, addr netip.Addr) error {
 	return nil
 }
 
-type NetPrefix netip.Prefix
+type NetPrefixValue struct {
+	prefix     netip.Prefix
+	hasBeenSet bool
+}
 
-func (p *NetPrefix) Set(value string) error {
-	parsed, err := netip.ParsePrefix(value)
+func (p *NetPrefixValue) Set(value string) error {
+	prefix, err := netip.ParsePrefix(value)
 	if err != nil {
 		return err
 	}
-	*p = NetPrefix(parsed)
+	*p = NetPrefixValue{
+		prefix:     prefix,
+		hasBeenSet: true,
+	}
 	return nil
 }
 
-func (p *NetPrefix) String() string {
-	return netip.Prefix(*p).String()
+func (p *NetPrefixValue) String() string {
+	if p.hasBeenSet {
+		return p.prefix.String()
+	}
+	return ""
 }
 
-type NetAddr netip.Addr
+func (p *NetPrefixValue) Get() any {
+	if p.hasBeenSet {
+		return p.prefix
+	}
+	return nil
+}
 
-func (p *NetAddr) Set(value string) error {
-	parsed, err := netip.ParseAddr(value)
+type NetAddrParser struct {
+	addr       netip.Addr
+	hasBeenSet bool
+}
+
+func (p *NetAddrParser) Set(value string) error {
+	addr, err := netip.ParseAddr(value)
 	if err != nil {
 		return err
 	}
-	*p = NetAddr(parsed)
+	*p = NetAddrParser{
+		addr:       addr,
+		hasBeenSet: true,
+	}
 	return nil
 }
 
-func (p *NetAddr) String() string {
-	return netip.Addr(*p).String()
+func (p *NetAddrParser) String() string {
+	if p.hasBeenSet {
+		return p.addr.String()
+	}
+	return ""
+}
+
+func (p *NetAddrParser) Get() any {
+	if p.hasBeenSet {
+		return p.addr
+	}
+	return nil
 }
 
 func Version() string {
